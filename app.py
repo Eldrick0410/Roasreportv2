@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-st.title("📊 ROAS Metrics Generator (With Monthly Summary)")
+st.title("📊 ROAS Metrics Generator (Decimals Only)")
 
 # Upload two Excel files
 file1 = st.file_uploader("Upload File 1 (Product ID + Cost)", type=["xlsx"])
@@ -61,38 +61,11 @@ if file1 and file2:
             merged = merged[final_cols]
             merged[["CTR", "CR", "ROAS"]] = merged[["CTR", "CR", "ROAS"]].round(4)
 
-            # Show detailed table
+            # Show dataframe
             st.success("✅ Metrics calculated successfully!")
             st.dataframe(merged)
 
-            # --- Monthly Summary Table ---
-            total_cost = merged["cost"].sum()
-            total_impressions = merged["product ad impressions"].sum()
-            total_clicks = merged["product ad clicks"].sum()
-            total_orders = merged["orders (sku)"].sum()
-            total_gmv = merged["gross revenue"].sum()
-
-            summary_data = {
-                "Total Cost": [total_cost],
-                "Total Impressions": [total_impressions],
-                "Total Clicks": [total_clicks],
-                "Total Orders": [total_orders],
-                "Total GMV": [total_gmv],
-                "CPM": [total_cost / total_impressions * 1000 if total_impressions else 0],
-                "CPC": [total_cost / total_clicks if total_clicks else 0],
-                "CTR": [total_clicks / total_impressions if total_impressions else 0],
-                "CR": [total_orders / total_clicks if total_clicks else 0],
-                "ROAS": [total_gmv / total_cost if total_cost else 0],
-                "CPP": [total_cost / total_orders if total_orders else 0]
-            }
-
-            summary_df = pd.DataFrame(summary_data)
-            summary_df[["CTR", "CR", "ROAS"]] = summary_df[["CTR", "CR", "ROAS"]].round(4)
-
-            st.subheader("📈 Monthly Performance Summary")
-            st.dataframe(summary_df)
-
-            # --- Download CSV (decimals only) ---
+            # Download CSV (decimals only)
             csv = merged.to_csv(index=False).encode("utf-8")
             st.download_button(
                 label="📥 Download ROAS Report (Decimals Only)",
@@ -103,6 +76,3 @@ if file1 and file2:
 
     except Exception as e:
         st.error(f"❌ Error processing files: {e}")
-
-
-
