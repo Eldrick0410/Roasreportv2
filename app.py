@@ -68,4 +68,12 @@ if file1 and file2:
             # Download CSV (decimals only)
             csv = merged.to_csv(index=False).encode("utf-8")
             st.download_button(
-                label="📥 Download ROAS Report (Decimals
+                label="📥 Download ROAS Report (Decimals Only)",
+                data=csv,
+                file_name="ROAS_Report.csv",
+                mime="text/csv"
+            )
+
+    except Exception as e:
+        st.error(f"❌ Error processing files: {e}")
+
