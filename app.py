@@ -92,23 +92,6 @@ if file1 and file2:
             st.subheader("📈 Monthly Performance Summary")
             st.dataframe(summary_df)
 
-
-              # ----- Monthly Summary Table -----
-            total_spend = final_df["cost"].sum()
-            total_orders = final_df["items sold"].sum()
-            total_gmv = final_df["gmv"].sum()
-            total_roas = total_gmv / total_spend if total_spend else 0
-
-            summary_df = pd.DataFrame([{
-                "Spend ($)": round(total_spend, 2),
-                "Orders": int(total_orders),
-                "GMV ($)": round(total_gmv, 2),
-                "ROAS": round(total_roas, 2)
-            }])
-
-            st.subheader("📊 Monthly Performance Summary")
-            st.dataframe(summary_df)
-            
             # --- Download CSV (decimals only) ---
             csv = merged.to_csv(index=False).encode("utf-8")
             st.download_button(
