@@ -23,7 +23,7 @@ if file1 and file2:
             "product id", 
             "product ad impressions", 
             "product ad clicks", 
-            "orders", 
+            "orders (SKU)", 
             "gross revenue"
         }
 
@@ -103,4 +103,5 @@ if file1 and file2:
 
     except Exception as e:
         st.error(f"❌ Error processing files: {e}")
+
 
