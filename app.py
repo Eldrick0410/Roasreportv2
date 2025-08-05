@@ -3,85 +3,70 @@ import pandas as pd
 
 st.title("📊 ROAS Metrics Generator (Auto Column Detection)")
 
-# Upload files
+# File uploads
 file1 = st.file_uploader("Upload File 1 (Product ID + Cost)", type=["xlsx"])
 file2 = st.file_uploader("Upload File 2 (Creative Level Data)", type=["xlsx"])
 
-def find_col(df, keywords):
-    """Find first column that contains all keywords."""
-    for col in df.columns:
-        if all(k in col for k in keywords):
-            return col
-    return None
-
 if file1 and file2:
     try:
+        # Read files
         df1 = pd.read_excel(file1)
         df2 = pd.read_excel(file2)
 
-        # Normalize columns
+        # Clean column names
         df1.columns = df1.columns.str.strip().str.lower()
         df2.columns = df2.columns.str.strip().str.lower()
 
         # Auto-detect columns
-        col_product_id_1 = find_col(df1, ["product", "id"])
-        col_cost = find_col(df1, ["cost"])
-        col_product_id_2 = find_col(df2, ["product", "id"])
-        col_impressions = find_col(df2, ["impression"])
-        col_clicks = find_col(df2, ["click"])
-        col_orders = find_col(df2, ["order", "sku"])  # Flexible detection
-        col_revenue = find_col(df2, ["gross", "revenue"])
+        product_id_col_f1 = [c for c in df1.columns if "product" in c and "id" in c][0]
+        cost_col = [c for c in df1.columns if "cost" in c][0]
 
-        detected = {
-            "Product ID (File1)": col_product_id_1,
-            "Cost": col_cost,
-            "Product ID (File2)": col_product_id_2,
-            "Impressions": col_impressions,
-            "Clicks": col_clicks,
-            "Orders": col_orders,
-            "Gross Revenue": col_revenue
-        }
-        st.write("### 🔍 Detected Columns")
-        st.json(detected)
+        product_id_col_f2 = [c for c in df2.columns if "product" in c and "id" in c][0]
+        impressions_col = [c for c in df2.columns if "impression" in c][0]
+        clicks_col = [c for c in df2.columns if "click" in c][0]
+        orders_col = [c for c in df2.columns if "order" in c and "sku" in c][0]
+        gmv_col = [c for c in df2.columns if "gross" in c or "revenue" in c][0]
 
-        # Stop if any column is missing
-        if None in detected.values():
-            st.error("❌ Could not detect all required columns. Check file headers.")
-            st.stop()
-
-        # Aggregate File2
-        df2_grouped = df2.groupby(col_product_id_2, as_index=False).agg({
-            col_impressions: "sum",
-            col_clicks: "sum",
-            col_orders: "sum",
-            col_revenue: "sum"
+        # Aggregate file 2
+        df2_grouped = df2.groupby(product_id_col_f2, as_index=False).agg({
+            impressions_col: "sum",
+            clicks_col: "sum",
+            orders_col: "sum",
+            gmv_col: "sum"
         })
 
-        # Merge and fill missing
-        merged = pd.merge(df1, df2_grouped, left_on=col_product_id_1, right_on=col_product_id_2, how="left")
+        # Merge
+        merged = pd.merge(df1[[product_id_col_f1, cost_col]], df2_grouped,
+                          left_on=product_id_col_f1, right_on=product_id_col_f2, how="left")
         merged.fillna(0, inplace=True)
 
+        # Rename columns for easier reference
+        merged.rename(columns={
+            product_id_col_f1: "Product ID",
+            cost_col: "Cost",
+            impressions_col: "Impressions",
+            clicks_col: "Clicks",
+            orders_col: "Orders",
+            gmv_col: "Gross Revenue"
+        }, inplace=True)
+
         # Calculate metrics
-        merged["CPM"] = merged[col_cost] / merged[col_impressions].replace(0, 1) * 1000
-        merged["CPC"] = merged[col_cost] / merged[col_clicks].replace(0, 1)
-        merged["CTR"] = merged[col_clicks] / merged[col_impressions].replace(0, 1)
-        merged["CR"] = merged[col_orders] / merged[col_clicks].replace(0, 1)
-        merged["ROAS"] = merged[col_revenue] / merged[col_cost].replace(0, 1)
-        merged["CPP"] = merged[col_cost] / merged[col_orders].replace(0, 1)
+        merged["CPM"] = merged["Cost"] / merged["Impressions"].replace(0, 1) * 1000
+        merged["CPC"] = merged["Cost"] / merged["Clicks"].replace(0, 1)
+        merged["CTR"] = merged["Clicks"] / merged["Impressions"].replace(0, 1)
+        merged["CR"] = merged["Orders"] / merged["Clicks"].replace(0, 1)
+        merged["ROAS"] = merged["Gross Revenue"] / merged["Cost"].replace(0, 1)
+        merged["CPP"] = merged["Cost"] / merged["Orders"].replace(0, 1)
 
-        # Reorder & round
-        merged_final = merged[[col_product_id_1, col_cost, col_impressions, col_clicks, col_orders, col_revenue,
-                               "CPM", "CPC", "CTR", "CR", "ROAS", "CPP"]].copy()
-        for col in ["CPM", "CPC", "ROAS", "CPP"]:
-            merged_final[col] = merged_final[col].round(2)
-        merged_final[["CTR", "CR"]] = merged_final[["CTR", "CR"]].round(4)
+        # Round decimals to 2 places
+        merged = merged.round(2)
 
-        # Show dataframe
+        # Display table
         st.success("✅ Metrics calculated successfully!")
-        st.dataframe(merged_final)
+        st.dataframe(merged)
 
         # Download CSV
-        csv = merged_final.to_csv(index=False).encode("utf-8")
+        csv = merged.to_csv(index=False).encode("utf-8")
         st.download_button(
             label="📥 Download ROAS Report (Decimals Only)",
             data=csv,
