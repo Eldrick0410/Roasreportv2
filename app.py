@@ -23,7 +23,7 @@ if file1 and file2:
         col_cost = [c for c in df1.columns if "cost" in c][0]
         col_impressions = [c for c in df2.columns if "impression" in c][0]
         col_clicks = [c for c in df2.columns if "click" in c][0]
-        col_orders = [c for c in df2.columns if "order" in c and "sku" in c][0]
+        col_orders = [c for c in df2.columns if "order" in c][0]
         col_revenue = [c for c in df2.columns if "gross" in c and "revenue" in c][0]
 
         # Aggregate File 2
@@ -68,3 +68,4 @@ if file1 and file2:
 
     except Exception as e:
         st.error(f"❌ Error processing files: {e}")
+
