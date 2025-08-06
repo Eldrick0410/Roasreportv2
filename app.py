@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 
-st.title("📊 ROAS Metrics Generator (Auto Column Detection + Product Name Mapping)")
+st.title("📊 ROAS Metrics Generator (Auto Column Detection + Product Names + Totals)")
 
 # File uploads
 file1 = st.file_uploader("Upload File 1 (Product ID + Cost)", type=["xlsx"])
@@ -10,7 +10,7 @@ file3 = st.file_uploader("Optional: Upload Product Name Mapping (Product ID + Pr
 
 if file1 and file2:
     try:
-        # --- Read files ---
+        # Read files
         df1 = pd.read_excel(file1)
         df2 = pd.read_excel(file2)
 
@@ -18,18 +18,21 @@ if file1 and file2:
         df1.columns = df1.columns.str.strip().str.lower()
         df2.columns = df2.columns.str.strip().str.lower()
 
-        # Auto-detect columns in File 1
+        # Auto-detect columns
         product_id_col_f1 = [c for c in df1.columns if "product" in c and "id" in c][0]
         cost_col = [c for c in df1.columns if "cost" in c][0]
 
-        # Auto-detect columns in File 2
         product_id_col_f2 = [c for c in df2.columns if "product" in c and "id" in c][0]
         impressions_col = [c for c in df2.columns if "impression" in c][0]
         clicks_col = [c for c in df2.columns if "click" in c][0]
         orders_col = [c for c in df2.columns if "order" in c and "sku" in c][0]
         gmv_col = [c for c in df2.columns if "gross" in c or "revenue" in c][0]
 
-        # Aggregate File 2
+        # Convert Product ID to string to prevent merge errors
+        df1[product_id_col_f1] = df1[product_id_col_f1].astype(str)
+        df2[product_id_col_f2] = df2[product_id_col_f2].astype(str)
+
+        # Aggregate file 2
         df2_grouped = df2.groupby(product_id_col_f2, as_index=False).agg({
             impressions_col: "sum",
             clicks_col: "sum",
@@ -37,9 +40,14 @@ if file1 and file2:
             gmv_col: "sum"
         })
 
-        # Merge File 1 + File 2
-        merged = pd.merge(df1[[product_id_col_f1, cost_col]], df2_grouped,
-                          left_on=product_id_col_f1, right_on=product_id_col_f2, how="left")
+        # Merge
+        merged = pd.merge(
+            df1[[product_id_col_f1, cost_col]],
+            df2_grouped,
+            left_on=product_id_col_f1,
+            right_on=product_id_col_f2,
+            how="left"
+        )
         merged.fillna(0, inplace=True)
 
         # Rename columns for easier reference
@@ -52,7 +60,7 @@ if file1 and file2:
             gmv_col: "Gross Revenue"
         }, inplace=True)
 
-        # --- Calculate Metrics ---
+        # Calculate metrics
         merged["CPM"] = merged["Cost"] / merged["Impressions"].replace(0, 1) * 1000
         merged["CPC"] = merged["Cost"] / merged["Clicks"].replace(0, 1)
         merged["CTR"] = merged["Clicks"] / merged["Impressions"].replace(0, 1)
@@ -60,28 +68,43 @@ if file1 and file2:
         merged["ROAS"] = merged["Gross Revenue"] / merged["Cost"].replace(0, 1)
         merged["CPP"] = merged["Cost"] / merged["Orders"].replace(0, 1)
 
+        # Round decimals to 2 places
+        merged = merged.round(2)
+
         # --- Optional Product Name Merge ---
         if file3:
             df3 = pd.read_excel(file3)
             df3.columns = df3.columns.str.strip().str.lower()
+
+            if "product id" in df3.columns:
+                df3["product id"] = df3["product id"].astype(str)
+                merged["Product ID"] = merged["Product ID"].astype(str)
+
             if {"product id", "product name"}.issubset(df3.columns):
-                merged = pd.merge(df3, merged, left_on="product id", right_on="Product ID", how="right")
-                merged.drop(columns=["product id"], inplace=True)  # remove duplicate key column
+                merged = pd.merge(
+                    df3[["product id", "product name"]],
+                    merged,
+                    left_on="product id",
+                    right_on="Product ID",
+                    how="right"
+                ).drop(columns=["product id"])
             else:
                 st.warning("⚠️ Product name file does not have both 'Product ID' and 'Product Name' columns. Skipping merge.")
 
-        # --- Round Decimals ---
-        merged[["CPM", "CPC", "ROAS", "CPP"]] = merged[["CPM", "CPC", "ROAS", "CPP"]].round(2)
-        merged[["CTR", "CR"]] = merged[["CTR", "CR"]].round(4)
+        # --- Add Total Row ---
+        total_row = pd.DataFrame(merged.sum(numeric_only=True)).T
+        total_row[["Product ID"]] = "TOTAL"
+        cols = merged.columns.tolist()
+        merged = pd.concat([merged, total_row[cols]], ignore_index=True)
 
         # Display table
         st.success("✅ Metrics calculated successfully!")
         st.dataframe(merged)
 
-        # --- Download CSV ---
+        # Download CSV
         csv = merged.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Download ROAS Report",
+            label="📥 Download ROAS Report (With Totals)",
             data=csv,
             file_name="ROAS_Report.csv",
             mime="text/csv"
