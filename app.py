@@ -52,9 +52,6 @@ if file1 and file2:
         df3 = pd.read_excel(file3)
         df3.columns = df3.columns.str.strip().str.lower()
 
-        st.write("🔍 Debug: Product Name File Preview")
-        st.dataframe(df3.head())  # Debug preview
-
         # Auto-detect columns
         pid_col3 = [c for c in df3.columns if "product" in c and "id" in c]
         pname_col = [c for c in df3.columns if "name" in c or "title" in c]
@@ -73,9 +70,6 @@ if file1 and file2:
                 right_on="Product ID",
                 how="right"
             ).drop(columns=[pid_col3]).rename(columns={pname_col: "Product Name"})
-
-        else:
-            st.warning("⚠️ Could not auto-detect Product Name column. Skipping name merge.")
 
     # --- Final Output ---
     st.subheader("Final ROAS Table")
