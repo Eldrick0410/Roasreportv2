@@ -1,98 +1,78 @@
 import streamlit as st
 import pandas as pd
 
-st.title("📊 ROAS Metrics Generator with Product Name Mapping")
+st.title("📊 ROAS Metrics Generator (Auto Column Detection)")
 
-# --- File Uploaders ---
+# File uploads
 file1 = st.file_uploader("Upload File 1 (Product ID + Cost)", type=["xlsx"])
 file2 = st.file_uploader("Upload File 2 (Creative Level Data)", type=["xlsx"])
-file3 = st.file_uploader("Optional: Upload Product Name Mapping (Product ID + Product Name)", type=["xlsx"])
 
 if file1 and file2:
     try:
-        # --- Read Files ---
+        # Read files
         df1 = pd.read_excel(file1)
         df2 = pd.read_excel(file2)
 
-        # Standardize column names
+        # Clean column names
         df1.columns = df1.columns.str.strip().str.lower()
         df2.columns = df2.columns.str.strip().str.lower()
 
-        # Dynamically detect "orders" column
-        order_col = None
-        for col in df2.columns:
-            if "order" in col and "sku" in col:
-                order_col = col
-                break
+        # Auto-detect columns
+        product_id_col_f1 = [c for c in df1.columns if "product" in c and "id" in c][0]
+        cost_col = [c for c in df1.columns if "cost" in c][0]
 
-        if not order_col:
-            st.error("❌ Could not find a column containing both 'order' and 'sku' in File 2.")
-        else:
-            # Required columns
-            required_file1_cols = {"product id", "cost"}
-            required_file2_cols = {"product id", "product ad impressions", "product ad clicks", order_col, "gross revenue"}
+        product_id_col_f2 = [c for c in df2.columns if "product" in c and "id" in c][0]
+        impressions_col = [c for c in df2.columns if "impression" in c][0]
+        clicks_col = [c for c in df2.columns if "click" in c][0]
+        orders_col = [c for c in df2.columns if "order" in c and "sku" in c][0]
+        gmv_col = [c for c in df2.columns if "gross" in c or "revenue" in c][0]
 
-            # Validate files
-            if not required_file1_cols.issubset(df1.columns):
-                st.error(f"❌ File 1 missing columns: {required_file1_cols - set(df1.columns)}")
-            elif not {"product id", "product ad impressions", "product ad clicks", "gross revenue"}.issubset(df2.columns):
-                st.error(f"❌ File 2 missing required columns except orders column.")
-            else:
-                # --- Aggregate File 2 ---
-                df2_grouped = df2.groupby("product id", as_index=False).agg({
-                    "product ad impressions": "sum",
-                    "product ad clicks": "sum",
-                    order_col: "sum",
-                    "gross revenue": "sum"
-                })
+        # Aggregate file 2
+        df2_grouped = df2.groupby(product_id_col_f2, as_index=False).agg({
+            impressions_col: "sum",
+            clicks_col: "sum",
+            orders_col: "sum",
+            gmv_col: "sum"
+        })
 
-                # --- Merge with Cost Data ---
-                merged = pd.merge(df1, df2_grouped, on="product id", how="left")
-                merged.fillna(0, inplace=True)
+        # Merge
+        merged = pd.merge(df1[[product_id_col_f1, cost_col]], df2_grouped,
+                          left_on=product_id_col_f1, right_on=product_id_col_f2, how="left")
+        merged.fillna(0, inplace=True)
 
-                # --- Calculate Metrics ---
-                merged["CPM"] = merged["cost"] / merged["product ad impressions"].replace(0, 1) * 1000
-                merged["CPC"] = merged["cost"] / merged["product ad clicks"].replace(0, 1)
-                merged["CTR"] = merged["product ad clicks"] / merged["product ad impressions"].replace(0, 1)
-                merged["CR"] = merged[order_col] / merged["product ad clicks"].replace(0, 1)
-                merged["ROAS"] = merged["gross revenue"] / merged["cost"].replace(0, 1)
-                merged["CPP"] = merged["cost"] / merged[order_col].replace(0, 1)
+        # Rename columns for easier reference
+        merged.rename(columns={
+            product_id_col_f1: "Product ID",
+            cost_col: "Cost",
+            impressions_col: "Impressions",
+            clicks_col: "Clicks",
+            orders_col: "Orders",
+            gmv_col: "Gross Revenue"
+        }, inplace=True)
 
-                # --- Optional Product Name Merge ---
-                if file3:
-                    df3 = pd.read_excel(file3)
-                    df3.columns = df3.columns.str.strip().str.lower()
-                    if {"product id", "product name"}.issubset(df3.columns):
-                        merged = pd.merge(df3, merged, on="product id", how="right")
-                    else:
-                        st.warning("⚠️ Product name file does not have both 'Product ID' and 'Product Name' columns. Skipping merge.")
+        # Calculate metrics
+        merged["CPM"] = merged["Cost"] / merged["Impressions"].replace(0, 1) * 1000
+        merged["CPC"] = merged["Cost"] / merged["Clicks"].replace(0, 1)
+        merged["CTR"] = merged["Clicks"] / merged["Impressions"].replace(0, 1)
+        merged["CR"] = merged["Orders"] / merged["Clicks"].replace(0, 1)
+        merged["ROAS"] = merged["Gross Revenue"] / merged["Cost"].replace(0, 1)
+        merged["CPP"] = merged["Cost"] / merged["Orders"].replace(0, 1)
 
-                # --- Reorder Columns ---
-                final_cols = ["product id"]
-                if file3:
-                    final_cols.append("product name")
-                final_cols += [
-                    "cost", "product ad impressions", "product ad clicks", order_col,
-                    "gross revenue", "CPM", "CPC", "CTR", "CR", "ROAS", "CPP"
-                ]
-                merged = merged[final_cols]
+        # Round decimals to 2 places
+        merged = merged.round(2)
 
-                # --- Round Decimals ---
-                merged[["CPM", "CPC", "ROAS", "CPP"]] = merged[["CPM", "CPC", "ROAS", "CPP"]].round(2)
-                merged[["CTR", "CR"]] = merged[["CTR", "CR"]].round(4)
+        # Display table
+        st.success("✅ Metrics calculated successfully!")
+        st.dataframe(merged)
 
-                # --- Display Table ---
-                st.success("✅ Metrics calculated successfully!")
-                st.dataframe(merged)
-
-                # --- Download CSV ---
-                csv = merged.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label="📥 Download ROAS Report",
-                    data=csv,
-                    file_name="ROAS_Report.csv",
-                    mime="text/csv"
-                )
+        # Download CSV
+        csv = merged.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            label="📥 Download ROAS Report (Decimals Only)",
+            data=csv,
+            file_name="ROAS_Report.csv",
+            mime="text/csv"
+        )
 
     except Exception as e:
         st.error(f"❌ Error processing files: {e}")
