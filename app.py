@@ -1,114 +1,104 @@
 import streamlit as st
 import pandas as pd
 
-st.title("📊 ROAS Metrics Generator (Auto Column Detection + Product Names + Totals)")
+st.title("📊 ROAS Metrics Generator (Multi-File Creative Upload)")
 
-# File uploads
-file1 = st.file_uploader("Upload File 1 (Product ID + Cost)", type=["xlsx"])
-file2 = st.file_uploader("Upload File 2 (Creative Level Data)", type=["xlsx"])
-file3 = st.file_uploader("Optional: Upload Product Name Mapping (Product ID + Product Name)", type=["xlsx"])
+# Upload base file
+base_file = st.file_uploader("Upload Base File (Product ID + Cost)", type=["xlsx"])
 
-if file1 and file2:
+# Upload multiple creative data files
+creative_files = st.file_uploader("Upload Creative-Level File(s)", type=["xlsx"], accept_multiple_files=True)
+
+if base_file and creative_files:
     try:
-        # Read files
-        df1 = pd.read_excel(file1)
-        df2 = pd.read_excel(file2)
+        # Read base file
+        df_base = pd.read_excel(base_file)
+        df_base.columns = df_base.columns.str.strip().str.lower()
 
-        # Clean column names
-        df1.columns = df1.columns.str.strip().str.lower()
-        df2.columns = df2.columns.str.strip().str.lower()
+        # Auto-detect base file columns
+        product_id_col_base = [c for c in df_base.columns if "product" in c and "id" in c][0]
+        cost_col = [c for c in df_base.columns if "cost" in c][0]
 
-        # Auto-detect columns
-        product_id_col_f1 = [c for c in df1.columns if "product" in c and "id" in c][0]
-        cost_col = [c for c in df1.columns if "cost" in c][0]
+        # Combine creative files
+        creative_dfs = []
+        for file in creative_files:
+            df = pd.read_excel(file)
+            df.columns = df.columns.str.strip().str.lower()
+            creative_dfs.append(df)
 
-        product_id_col_f2 = [c for c in df2.columns if "product" in c and "id" in c][0]
-        impressions_col = [c for c in df2.columns if "impression" in c][0]
-        clicks_col = [c for c in df2.columns if "click" in c][0]
-        orders_col = [c for c in df2.columns if "order" in c and "sku" in c][0]
-        gmv_col = [c for c in df2.columns if "gross" in c or "revenue" in c][0]
+        df_creative = pd.concat(creative_dfs, ignore_index=True)
 
-        # Convert Product ID to string to prevent merge errors
-        df1[product_id_col_f1] = df1[product_id_col_f1].astype(str)
-        df2[product_id_col_f2] = df2[product_id_col_f2].astype(str)
+        # Auto-detect creative file columns
+        product_id_col_creative = [c for c in df_creative.columns if "product" in c and "id" in c][0]
+        impressions_col = [c for c in df_creative.columns if "impression" in c][0]
+        clicks_col = [c for c in df_creative.columns if "click" in c][0]
+        orders_col = [c for c in df_creative.columns if "order" in c and "sku" in c][0]
+        gmv_col = [c for c in df_creative.columns if "gross" in c or "revenue" in c][0]
 
-        # Aggregate file 2
-        df2_grouped = df2.groupby(product_id_col_f2, as_index=False).agg({
+        # Aggregate creative data
+        df_creative_grouped = df_creative.groupby(product_id_col_creative, as_index=False).agg({
             impressions_col: "sum",
             clicks_col: "sum",
             orders_col: "sum",
             gmv_col: "sum"
         })
 
-        # Merge
+        # Merge with base file
         merged = pd.merge(
-            df1[[product_id_col_f1, cost_col]],
-            df2_grouped,
-            left_on=product_id_col_f1,
-            right_on=product_id_col_f2,
+            df_base[[product_id_col_base, cost_col]],
+            df_creative_grouped,
+            left_on=product_id_col_base,
+            right_on=product_id_col_creative,
             how="left"
-        )
-        merged.fillna(0, inplace=True)
+        ).fillna(0)
 
-        # Rename columns for easier reference
+        # Rename columns
         merged.rename(columns={
-            product_id_col_f1: "Product ID",
+            product_id_col_base: "Product ID",
             cost_col: "Cost",
             impressions_col: "Impressions",
             clicks_col: "Clicks",
             orders_col: "Orders",
-            gmv_col: "Gross Revenue"
+            gmv_col: "GMV"
         }, inplace=True)
 
-        # Calculate metrics
+        # Metrics
         merged["CPM"] = merged["Cost"] / merged["Impressions"].replace(0, 1) * 1000
         merged["CPC"] = merged["Cost"] / merged["Clicks"].replace(0, 1)
         merged["CTR"] = merged["Clicks"] / merged["Impressions"].replace(0, 1)
         merged["CR"] = merged["Orders"] / merged["Clicks"].replace(0, 1)
-        merged["ROAS"] = merged["Gross Revenue"] / merged["Cost"].replace(0, 1)
+        merged["ROAS"] = merged["GMV"] / merged["Cost"].replace(0, 1)
         merged["CPP"] = merged["Cost"] / merged["Orders"].replace(0, 1)
 
-        # Round decimals to 2 places
+        # Round
         merged = merged.round(2)
 
-        # --- Optional Product Name Merge ---
-        if file3:
-            df3 = pd.read_excel(file3)
-            df3.columns = df3.columns.str.strip().str.lower()
-
-            if "product id" in df3.columns:
-                df3["product id"] = df3["product id"].astype(str)
-                merged["Product ID"] = merged["Product ID"].astype(str)
-
-            if {"product id", "product name"}.issubset(df3.columns):
-                merged = pd.merge(
-                    df3[["product id", "product name"]],
-                    merged,
-                    left_on="product id",
-                    right_on="Product ID",
-                    how="right"
-                ).drop(columns=["product id"])
-            else:
-                st.warning("⚠️ Product name file does not have both 'Product ID' and 'Product Name' columns. Skipping merge.")
-
-        # --- Add Total Row ---
-        total_row = pd.DataFrame(merged.sum(numeric_only=True)).T
-        total_row[["Product ID"]] = "TOTAL"
-        cols = merged.columns.tolist()
-        merged = pd.concat([merged, total_row[cols]], ignore_index=True)
-
-        # Display table
+        # Show full table
         st.success("✅ Metrics calculated successfully!")
         st.dataframe(merged)
+
+        # Monthly Summary
+        summary = {
+            "Spend": merged["Cost"].sum(),
+            "Orders": merged["Orders"].sum(),
+            "GMV": merged["GMV"].sum(),
+        }
+        summary["ROAS"] = summary["GMV"] / summary["Spend"] if summary["Spend"] != 0 else 0
+        summary["CTR"] = merged["Clicks"].sum() / merged["Impressions"].sum() if merged["Impressions"].sum() != 0 else 0
+        summary["CR"] = merged["Orders"].sum() / merged["Clicks"].sum() if merged["Clicks"].sum() != 0 else 0
+
+        summary_df = pd.DataFrame([summary]).round(2)
+        st.subheader("📈 Monthly Summary")
+        st.dataframe(summary_df)
 
         # Download CSV
         csv = merged.to_csv(index=False).encode("utf-8")
         st.download_button(
-            label="📥 Download ROAS Report (With Totals)",
+            label="📥 Download ROAS Report",
             data=csv,
             file_name="ROAS_Report.csv",
             mime="text/csv"
         )
 
     except Exception as e:
-        st.error(f"❌ Error processing files: {e}")
+        st.error(f"❌ Error: {e}")
